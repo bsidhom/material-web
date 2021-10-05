@@ -1,0 +1,237 @@
+//
+// Copyright 2021 Google LLC
+// SPDX-License-Identifier: Apache-2.0
+//
+
+@use 'sass:map';
+@use 'sass:meta';
+@use 'sass:string';
+@use './config';
+@use './string-ext';
+
+/// Indicates whether or not a value is a custom property `var()` string.
+///
+/// @example - scss
+///   $is-var: var.is-var('var(--foo)'); // true
+///
+/// @param {*} $var - The value to test.
+/// @return {Bool} True if the value is a custom property `var()` string, or
+///     false if not.
+@function is-var($var) {
+  @return _parse($var) != null;
+}
+
+/// Indicates whether or not a value is a `var()` string.
+///
+/// @param {*} $var - The value to test.
+/// @return {Bool} True if the value is a custom property `var()` string, or
+///     false if not.
+@function _is-var-string($var) {
+  @return meta.type-of($var) == 'string' and string.slice($var, 1, 4) == 'var(';
+}
+
+/// Parses a `var()` string into a Map with `name` and `value` keys. This
+/// function returns null if the value is invalid.
+///
+/// @param {*} $var - The value to parse.
+/// @return {Map} A Map containing a string `name` key with the custom property
+///     name and a `value` key with the declaration value (which may be null).
+///     The returned Map itself may be null if the provided value is not valid.
+@function _parse($var) {
+  @if meta.type-of($var) ==
+    'map' and
+    map.has-key($var, name) and
+    map.has-key($var, value)
+  {
+    @return $var;
+  }
+
+  @if not _is-var-string($var) {
+    @return null;
+  }
+
+  $name: string-ext.trim(string.slice($var, 5, -2));
+  $value: null;
+  $comma: string.index($var, ',');
+  @if $comma != null {
+    $name: string-ext.trim(string.slice($var, 5, $comma - 1));
+    $value: string-ext.trim(string.slice($var, $comma + 1, -2));
+    @if _is-var-string($value) {
+      $value: _parse($value);
+      @if $value == null {
+        @return null;
+      }
+    }
+  }
+
+  @if $name == '' or $value == '' {
+    @return null;
+  }
+
+  @return (name: $name, value: $value);
+}
+
+/// Parses a `var()` string into a Map with `name` and `value` keys.
+///
+/// @throw If the value is not a custom property.
+/// @param {*} $var - The value to parse.
+/// @return {Map} A Map containing a string `name` key with the custom property
+///     name and a `value` key with the declaration value (which may be null).
+@function _parse-and-validate($var) {
+  $var-map: _parse($var);
+  @if $var-map == null {
+    @error '"#{$var}" is not a valid var() string';
+  }
+
+  @return $var-map;
+}
+
+/// Creates a custom property `var()` string according to the configured
+/// `custom-property-values` option.
+///
+/// @param {String} $name - The name of the custom property.
+/// @param {*} $value [null] - Optional `var()` declaration value.
+/// @return {String} A custom property `var()` string.
+@function create($name, $value: null) {
+  $name: create-name($name);
+  $value-config: config.get(var-values);
+  @if $value-config == none or $value == null {
+    @return var(#{$name});
+  }
+
+  @if is-var($value) {
+    $value-name: name($value);
+    $value-value: null;
+    @if $value-config == all {
+      $value-value: value($value);
+    }
+
+    @return var(#{$name}, #{create($value-name, $value-value)});
+  }
+
+  @return var(#{$name}, #{$value});
+}
+
+/// Create a custom property variable name using the configured
+/// `var-name-prefix`.
+///
+/// Providing a custom property name with `--*` will ignore the global prefix.
+///
+/// @example - scss
+///   .foo {
+///     color: var(#{var.create-name(foo)});
+///     background: var(#{var.create-name(--bar)});
+///   }
+///
+/// @example - css
+///   .foo {
+///     color: var(--md-foo);
+///     background: var(--bar);
+///   }
+///
+/// @param {String} $name - The name of the custom property.
+/// @return {String} The full valid CSS custom property variable name.
+@function create-name($name) {
+  @if string.slice($name, 1, 2) == '--' {
+    @return $name;
+  }
+
+  @return string.unquote('--#{config.get(var-name-prefix)}-#{$name}');
+}
+
+/// Returns the custom property variable name of `var()` string.
+///
+/// @throw If the value is not a custom property.
+/// @param {String} $var - A custom property `var()` string.
+/// @return {String} The custom property variable name.
+@function name($var) {
+  $var: _parse-and-validate($var);
+  @return map.get($var, name);
+}
+
+/// Returns the declaration value of a custom property `var()` string. The value
+/// may be null if the `var()` does not have a declaration value.
+///
+/// @example - scss
+///   $fallback: var.value(var(--foo, var(--bar, 8px));
+///   // "var(--bar, 8px)"
+///
+/// @throw If the value is not a custom property.
+/// @param {String} $var - A custom property `var()` string.
+/// @return {String} The declaration value of the `var()` string. May be null if
+///     the `var()` does not have a value.
+@function value($var) {
+  $var: _parse-and-validate($var);
+  $value: map.get($var, value);
+  @if is-var($value) {
+    @return create(name($value), value($value));
+  }
+
+  @return $value;
+}
+
+/// Returns the deep declaration value of a custom property `var()` string.
+/// The value may be null if the `var()` does not have a value.
+///
+/// If a declaration value is another `var()`, this function will return the
+/// final concrete value in the chain.
+///
+/// @example - scss
+///   $fallback: var.deep-value(var(--foo, var(--bar, 8px));
+///   // "8px"
+///
+/// @throw If the value is not a custom property.
+/// @param {String} $var - A custom property `var()` string.
+/// @return {String} The deep declaration value of the `var()` string.
+///     May be null if the `var()` does not have a value.
+@function deep-value($var) {
+  $value: value($var);
+  @if is-var($value) {
+    @return deep-value($value);
+  }
+
+  @return $value;
+}
+
+/// Creates a new custom property `var()` string and returns it with the
+/// specified new declaration value.
+///
+/// @example - scss
+///   $new-var: set-value(var(--foo, var(--bar, 8px)), 16px);
+///   // "var(--foo, 16px)"
+///
+/// @throw If the value is not a custom property.
+/// @param {String} $var - A custom property `var()` string.
+/// @param {*} $new-value - The new declaration value of the
+///     custom property Map. May be null to remove a value.
+/// @return {String} A custom property `var()` string with the new declaration
+///     value.
+@function set-value($var, $new-value) {
+  $name: name($var);
+  @return create($name, $new-value);
+}
+
+/// Creates a new custom property `var()` string and returns it with the
+/// specified new deep declaration value.
+///
+/// If the provided `var()` string's declaration value is another `var()`, this
+/// function will set the final declaration value in the chain.
+///
+/// @example - scss
+///   $new-var: deep-set-value(var(--foo, var(--bar, 8px)), 16px);
+///   // "var(--foo, var(--bar, 16px))"
+///
+/// @throw If the value is not a custom property.
+/// @param {String} $var - A custom property `var()` string.
+/// @param {*} $new-value - The new declaration value of the
+///     custom property Map. May be null to remove a value.
+/// @return {String} A custom property `var()` string with the new deep
+///     declaration value.
+@function deep-set-value($var, $new-value) {
+  $old-value: value($var);
+  @if is-var($old-value) {
+    $new-value: deep-set-value($old-value, $new-value);
+  }
+
+  @return set-value($var, $new-value);
+}

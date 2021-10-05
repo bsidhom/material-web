@@ -1,0 +1,56 @@
+//
+// Copyright 2021 Google LLC
+// SPDX-License-Identifier: Apache-2.0
+//
+
+@use 'sass:string';
+
+/// Retrieves the character of a string at the given index.
+///
+/// @param {String} $string - The string.
+/// @param {Number} $index - The index of the character to retrieve.
+/// @return {String} The character at the index (may be null).
+@function charAt($string, $index) {
+  @return string.slice($string, $index, $index);
+}
+
+/// Trims whitespace from the start of a string.
+///
+/// @example - scss
+///   @debug trimStart('  foo bar  '); // "foo bar  "
+///
+/// @param {String} $string - The string to trim.
+/// @return {String} The string with whitespace trimmed from the start.
+@function trimStart($string) {
+  @while charAt($string, 1) == ' ' {
+    $string: string.slice($string, 2);
+  }
+
+  @return $string;
+}
+
+/// Trims whitespace from the end of a string.
+///
+/// @example - scss
+///   @debug trimEnd('  foo bar  '); // "  foo bar"
+///
+/// @param {String} $string - The string to trim.
+/// @return {String} The string with whitespace trimmed from the end.
+@function trimEnd($string) {
+  @while charAt($string, -1) == ' ' {
+    $string: string.slice($string, 1, -2);
+  }
+
+  @return $string;
+}
+
+/// Trims whitespace from the start and end of a string.
+///
+/// @example - scss
+///   @debug trim('  foo bar  '); // "foo bar"
+///
+/// @param {String} $string - The string to trim.
+/// @return {String} The string with whitespace trimmed.
+@function trim($string) {
+  @return trimStart(trimEnd($string));
+}
